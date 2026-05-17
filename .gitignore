@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+venv/
+.env
+
+# Data (Too large for GitHub)
+data/
+*.zip
+*.tar.gz
+
+# Models (Too large for GitHub - download from Kaggle/Drive)
+models/
+
+# Outputs (Large binary artifacts)
+outputs/
+
+# Scratch / dev files
+scratch/
+*.bat
+create_synthetic_data.py
+quick_train.py
+test_model.py
+train_zar3y.py
+implementation_plan.md
+walkthrough.md
+
+# IDEs
+.vscode/
+.idea/
+.gemini/
+
+# LFS attributes (not needed without models)
+.gitattributes
