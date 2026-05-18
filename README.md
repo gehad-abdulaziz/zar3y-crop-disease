@@ -99,3 +99,4 @@ streamlit run app.py
 - Dataset: [PlantVillage Dataset (Kaggle)](https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset)
 - Pre-trained Models: TensorFlow Hub / Keras Applications
 - Frameworks: Sprints Graduation Project Guidelines
+- models here https: https://drive.google.com/drive/folders/1MHF0ElBTxc7KoUCC7EFpbcktv4jN0RHU?usp=drive_link
