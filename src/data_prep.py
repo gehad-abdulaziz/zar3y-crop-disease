@@ -3,6 +3,7 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from src.settings import SEED, LOCKED_CLASSES, DATA_DIR, IMG_SIZE
 
+
 def prepare_data():
     """Download, filter, and split the PlantVillage dataset."""
     zip_path = os.path.join(DATA_DIR, "plantvillage-dataset.zip")
@@ -18,7 +19,7 @@ def prepare_data():
             )
         print("Downloading dataset from Kaggle...")
         os.system(f"kaggle datasets download -d abdallahalidev/plantvillage-dataset -p {DATA_DIR} --force")
-    
+
     zip_path = os.path.join(DATA_DIR, "plantvillage-dataset.zip")
     raw_path = os.path.join(DATA_DIR, "raw")
     os.makedirs(raw_path, exist_ok=True)
@@ -31,10 +32,12 @@ def prepare_data():
         else:
             print(f"Raw data already extracted at {raw_path}")
     else:
-        raise FileNotFoundError(f"Dataset archive not found: {zip_path}. Please download it manually with Kaggle.")
+        raise FileNotFoundError(
+            f"Dataset archive not found: {zip_path}. Please download it manually with Kaggle."
+        )
 
     split_path = os.path.join(DATA_DIR, "plant_village")
-    
+
     # Locate actual image directory
     potential_roots = [
         os.path.join(raw_path, "plantvillage dataset", "color"),
@@ -50,61 +53,110 @@ def prepare_data():
     counts = {}
     print("Filtering and splitting classes...")
     import re
-    def clean(s): return re.sub(r'[^a-z0-9]', '', s.lower())
+
+    def clean(s):
+        return re.sub(r'[^a-z0-9]', '', s.lower())
 
     found_classes = []
     for cls in LOCKED_CLASSES:
         cls_clean = clean(cls)
-        # Flexible matching
         match = None
         for d in os.listdir(actual_root):
             d_clean = clean(d)
-            # Match if one is a subset of the other or they share core words
             if cls_clean in d_clean or d_clean in cls_clean or \
                (clean(cls.split('___')[0]) in d_clean and clean(cls.split('___')[-1]) in d_clean):
                 match = d
                 break
-                
-        if not match: 
+
+        if not match:
             print(f"Warning: Class {cls} not found in {actual_root}.")
             continue
-        
-        imgs = [os.path.join(actual_root, match, f) for f in os.listdir(os.path.join(actual_root, match)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+
+        imgs = [
+            os.path.join(actual_root, match, f)
+            for f in os.listdir(os.path.join(actual_root, match))
+            if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+        ]
         if not imgs:
             print(f"Warning: No images found for {cls}")
             continue
 
         print(f"Processing {cls}: {len(imgs)} images")
         found_classes.append(cls)
-        
+
         train, temp = train_test_split(imgs, test_size=0.30, random_state=SEED)
         val, test = train_test_split(temp, test_size=0.50, random_state=SEED)
-        
+
         counts[cls] = len(imgs)
         for name, data in [('train', train), ('val', val), ('test', test)]:
             dst = os.path.join(split_path, name, cls)
             os.makedirs(dst, exist_ok=True)
-            for f in data: shutil.copy2(f, dst)
-    
-    # Update LOCKED_CLASSES in memory for this run if needed, 
-    # but we should really stick to the global one.
-    # We will return the found classes to the training script.
-    
+            for f in data:
+                shutil.copy2(f, dst)
+
     with open(os.path.join(DATA_DIR, "class_counts.json"), 'w') as f:
         json.dump(counts, f, indent=2)
-    
+
     print("Data preparation complete.")
     return counts, found_classes
 
+
 def get_augmentation_pipeline():
-    """Build a tf.data augmentation pipeline."""
+    """
+    Augmentation pipeline applied ONLY during training via tf.data.
+    Must NOT be inside the model — otherwise it runs at inference time too,
+    which corrupts Grad-CAM heatmaps and degrades prediction consistency.
+    """
     return tf.keras.Sequential([
-        tf.keras.layers.RandomFlip("horizontal"),
-        tf.keras.layers.RandomRotation(0.042), # ±15 degrees
-        tf.keras.layers.RandomBrightness(0.2),
-        tf.keras.layers.RandomContrast(0.2),
-        tf.keras.layers.RandomZoom(0.1),
+        tf.keras.layers.RandomFlip("horizontal_and_vertical"),
+        tf.keras.layers.RandomRotation(0.2),
+        tf.keras.layers.RandomTranslation(height_factor=0.2, width_factor=0.2),
+        tf.keras.layers.RandomZoom(height_factor=(-0.2, 0.2), width_factor=(-0.2, 0.2)),
+        tf.keras.layers.RandomBrightness(0.3),
+        tf.keras.layers.RandomContrast(0.3),
     ])
+
+
+def build_dataset(split_dir, class_names, batch_size=32, augment=False):
+    """
+    Build a tf.data dataset from a directory.
+
+    CRITICAL — Normalization contract:
+      - image_dataset_from_directory returns pixels in [0, 255] by default
+        (no rescaling layer is added here on purpose).
+      - mobilenet_v2.preprocess_input inside the model converts [0,255] → [-1,1],
+        which is exactly what the pretrained MobileNetV2 weights expect.
+      - DO NOT add a Rescaling(1./255) layer here or anywhere else in the pipeline;
+        doing so would feed [0,1] into preprocess_input and produce [-1, 1] values
+        computed from the wrong range — causing the model to rely on background
+        shortcuts instead of true disease features.
+
+    Args:
+        split_dir:   path to the split folder (train / val / test)
+        class_names: ordered list of class names (LOCKED_CLASSES)
+        batch_size:  number of samples per batch
+        augment:     True only for the training split
+    """
+    ds = tf.keras.utils.image_dataset_from_directory(
+        split_dir,
+        image_size=IMG_SIZE,          # resize to (224, 224)
+        batch_size=batch_size,
+        label_mode='categorical',
+        class_names=class_names,
+        shuffle=(augment),            # shuffle train, keep val/test ordered
+    )
+
+    if augment:
+        aug = get_augmentation_pipeline()
+        # training=True makes dropout/random layers behave stochastically
+        ds = ds.map(
+            lambda x, y: (aug(x, training=True), y),
+            num_parallel_calls=tf.data.AUTOTUNE
+        )
+
+    ds = ds.prefetch(tf.data.AUTOTUNE)
+    return ds
+
 
 if __name__ == "__main__":
     prepare_data()
