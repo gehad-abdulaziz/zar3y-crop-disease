@@ -47,7 +47,7 @@ zar3y-crop-disease/
 ## 📊 Performance Results
 | Metric | Value |
 | :--- | :--- |
-| **Overall Test Accuracy** | **95.1%** |
+| **Overall Test Accuracy** | **98.6%** |
 | **Model Size (FP32)** | 9.33 MB |
 | **Model Size (INT8)** | **2.62 MB** |
 | **Inference Latency** | **< 200ms (CPU)** |
@@ -99,4 +99,3 @@ streamlit run app.py
 - Dataset: [PlantVillage Dataset (Kaggle)](https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset)
 - Pre-trained Models: TensorFlow Hub / Keras Applications
 - Frameworks: Sprints Graduation Project Guidelines
-- models here https: https://drive.google.com/drive/folders/1MHF0ElBTxc7KoUCC7EFpbcktv4jN0RHU?usp=drive_link
